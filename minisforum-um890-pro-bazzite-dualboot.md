@@ -162,8 +162,47 @@ echo "" | sudo tee /sys/bus/pci/devices/0000:03:00.0/driver_override
 - `ujust` is Bazzite's helper command runner for common tasks
 - TTY access: Ctrl+Alt+F2 (login as your user), Ctrl+Alt+F1 to get back to graphical
 
+### Switching from deck/gaming mode to KDE desktop
+
+The deck variant boots into Steam gaming mode by default. To switch to KDE desktop permanently:
+
+1. The SDDM config at `/etc/sddm.conf.d/steamos.conf` is on the immutable filesystem and **cannot be edited directly**
+2. Instead, create/edit `/etc/sddm.conf`:
+   ```
+   sudo nano /etc/sddm.conf
+   ```
+   Add:
+   ```
+   [Autologin]
+   Session=plasma.desktop
+   User=kmcintyre
+   ```
+3. Reboot — boots into KDE Plasma
+
+To revert back to gaming mode, remove that file or change `Session` back to `gamescope-session.desktop`.
+
+### Current system state (as of 2026-03-14)
+
+- **KDE desktop mode** is active (plasma.desktop autologin via `/etc/sddm.conf`)
+- **WiFi not working** — see WiFi section above
+- **Internet access** — phone USB tethering or Mac USB ethernet passthrough
+- **ostree unlock --hotfix** was used during WiFi attempts — firmware symlinks and DKMS module in `/lib/firmware/` and `/usr/src/` will be wiped on next `rpm-ostree upgrade` (this is fine, they didn't work anyway)
+- **Checking for WiFi fix** — run `rpm-ostree upgrade` periodically and reboot; when MT7902 support lands in the kernel it should just work
+
 ---
 
 ## Notes for Claude
 
-If you're reading this on the Bazzite machine: hi. The WiFi doesn't work yet (see above). The system is otherwise fully set up with dual boot. Windows is on the same NVMe. The phone tethering workaround is how you're online.
+If you're reading this on the Bazzite machine: hi. Here's the current situation:
+
+- WiFi doesn't work yet (MT7902, no mainline driver — see WiFi section)
+- Internet is via phone USB tethering or wired connection
+- System is in KDE desktop mode
+- Dual boot with Windows 11 on the same NVMe
+- The user (Kyle) plans to eventually use this as an HTPC with gaming mode once WiFi is sorted
+
+To pull this repo on the Bazzite machine:
+```bash
+git clone git@github.com:kylejmcintyre/writeups.git
+```
+(requires SSH key setup on the Bazzite machine first)
