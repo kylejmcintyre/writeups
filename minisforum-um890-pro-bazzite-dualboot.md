@@ -80,7 +80,7 @@
 
 ---
 
-## WiFi: MediaTek MT7902 (Filogic 310) — NOT WORKING
+## WiFi: MediaTek MT7902 (Filogic 310) — WORKING (via out-of-tree DKMS driver)
 
 ### The problem
 
@@ -91,7 +91,67 @@ The UM890 Pro uses a **MediaTek MT7902 (Filogic 310)** WiFi adapter. As of early
 3:00.0 Network controller: MediaTek Corp MT7902 802.11ax PCIe Wireless Network Adapter [Filogic 310]
 ```
 
-But no kernel driver binds to it.
+But no kernel driver binds to it by default.
+
+### What actually works (as of 2026-03-14)
+
+**`hmtheboy154/gen4-mt7902`** — an out-of-tree DKMS driver based on MediaTek's official patch series. Gets `wlan0` up and scanning.
+
+#### Steps on Bazzite (kernel 6.17.7-ba28.fc43.x86_64)
+
+**Prerequisites** — `dkms` and `kernel-devel` must be installed and the filesystem must be unlocked:
+```bash
+# If not already done:
+rpm-ostree install dkms   # then reboot
+sudo ostree admin unlock --hotfix
+```
+
+**1. Clone the driver:**
+```bash
+cd /tmp && git clone https://github.com/hmtheboy154/gen4-mt7902.git
+```
+
+**2. Copy to DKMS source tree:**
+```bash
+sudo cp -r /tmp/gen4-mt7902 /usr/src/gen4-mt7902-0.1
+```
+
+**3. Add and build:**
+```bash
+sudo dkms add gen4-mt7902/0.1
+sudo dkms build gen4-mt7902/0.1
+```
+
+**4. Copy firmware** (the driver ships its own — don't rely on the `.bin.xz` files already in `/lib/firmware/mediatek/`):
+```bash
+sudo cp /usr/src/gen4-mt7902-0.1/firmware/WIFI_MT7902_patch_mcu_1_1_hdr.bin /lib/firmware/mediatek/mt7902/
+sudo cp /usr/src/gen4-mt7902-0.1/firmware/WIFI_RAM_CODE_MT7902_1.bin /lib/firmware/mediatek/mt7902/
+```
+
+**5. Install the module** — `dkms install` produces an empty `.ko.xz` on Bazzite hotfix; copy directly instead:
+```bash
+sudo cp /var/lib/dkms/gen4-mt7902/0.1/6.17.7-ba28.fc43.x86_64/x86_64/module/mt7902.ko.xz \
+        /lib/modules/6.17.7-ba28.fc43.x86_64/extra/mt7902.ko.xz
+sudo depmod -a
+```
+
+**6. Load it:**
+```bash
+sudo modprobe mt7902
+```
+
+`wlan0` should appear immediately. Verify:
+```bash
+ip link show wlan0
+nmcli device status
+```
+
+#### Important caveats
+
+- **`dkms install` produces an empty file on Bazzite hotfix** — always copy from `/var/lib/dkms/.../module/` directly. This is why the manual copy in step 5 is necessary.
+- **Firmware must be `.bin`, not `.bin.xz`** — the gen4 driver looks for uncompressed firmware in `/lib/firmware/mediatek/mt7902/`. The existing `.bin.xz` files in the parent directory are for different driver paths and won't be found here.
+- **These files live on the hotfix overlay** — they will be wiped by `rpm-ostree upgrade`. When the kernel updates, you'll need to rebuild the DKMS module anyway (different kernel version), so treat the whole process as something to redo after upgrades until mainline support lands.
+- **To redo after an OS upgrade:** repeat from step 2 onward (the clone may still be in `/tmp` if not rebooted, otherwise re-clone). Adjust the kernel version path in step 5 to match `uname -r`.
 
 ### What we tried
 
@@ -142,15 +202,13 @@ echo "14c3 7902" | sudo tee /sys/bus/pci/drivers/mt7921e/new_id
 echo "" | sudo tee /sys/bus/pci/devices/0000:03:00.0/driver_override
 ```
 
-### Current workaround
+### Interim workaround (before the DKMS fix)
 
-**Phone USB tethering** — connect phone via USB cable, enable hotspot/USB tethering on phone. Shows up as a wired ethernet device in NetworkManager. Works fine for getting online.
+**Mac USB ethernet passthrough** — connect Mac via USB, share its WiFi connection as ethernet. Shows up as a wired ethernet device (`enp2s0`) in NetworkManager.
 
-### What will actually fix it
+### Long-term fix
 
-1. **Wait** — Bazzite will ship a kernel update with MT7902 support within a few months of the patches merging
-2. **USB WiFi adapter** — Realtek RTL8812AU or Intel-based adapters work out of the box
-3. **When the fix lands**, it should just work after a `rpm-ostree upgrade` and reboot
+When MT7902 support lands in the mainline kernel (targeting Linux 7.1 / April 2026 merge window), `rpm-ostree upgrade` + reboot should just work and the DKMS module won't be needed anymore.
 
 ---
 
@@ -184,10 +242,8 @@ To revert back to gaming mode, remove that file or change `Session` back to `gam
 ### Current system state (as of 2026-03-14)
 
 - **KDE desktop mode** is active (plasma.desktop autologin via `/etc/sddm.conf`)
-- **WiFi not working** — see WiFi section above
-- **Internet access** — phone USB tethering or Mac USB ethernet passthrough
-- **ostree unlock --hotfix** was used during WiFi attempts — firmware symlinks and DKMS module in `/lib/firmware/` and `/usr/src/` will be wiped on next `rpm-ostree upgrade` (this is fine, they didn't work anyway)
-- **Checking for WiFi fix** — run `rpm-ostree upgrade` periodically and reboot; when MT7902 support lands in the kernel it should just work
+- **WiFi working** via gen4-mt7902 DKMS driver (see WiFi section above)
+- **ostree unlock --hotfix** is active — DKMS module and firmware in `/lib/firmware/mediatek/mt7902/` will be wiped on next `rpm-ostree upgrade`; redo the WiFi steps after any OS upgrade until mainline support lands
 
 ---
 
@@ -195,14 +251,12 @@ To revert back to gaming mode, remove that file or change `Session` back to `gam
 
 If you're reading this on the Bazzite machine: hi. Here's the current situation:
 
-- WiFi doesn't work yet (MT7902, no mainline driver — see WiFi section)
-- Internet is via phone USB tethering or wired connection
+- **WiFi is working** via gen4-mt7902 DKMS driver — see WiFi section
 - System is in KDE desktop mode
 - Dual boot with Windows 11 on the same NVMe
-- The user (Kyle) plans to eventually use this as an HTPC with gaming mode once WiFi is sorted
+- Kyle plans to eventually use this as an HTPC in Steam gaming mode
 
-To pull this repo on the Bazzite machine:
+To pull this repo:
 ```bash
-git clone git@github.com:kylejmcintyre/writeups.git
+git clone https://github.com/kylejmcintyre/writeups.git
 ```
-(requires SSH key setup on the Bazzite machine first)
